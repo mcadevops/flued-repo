@@ -27,7 +27,10 @@ spec:
             - name: DB_USER
               value: admin
             - name: DB_PASSWORD
-              value: password123
+              valueFrom:
+                secretKeyRef:
+                   name: postgres-secret
+                   key: POSTGRES_PASSWORD    
 
           resources:
             requests:
