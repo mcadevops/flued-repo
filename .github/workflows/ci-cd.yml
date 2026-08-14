@@ -14,6 +14,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # -------------------------
+      # CI - Build & Test
+      # -------------------------
+
       - name: Build Docker image
         run: |
           docker build \
@@ -34,9 +38,51 @@ jobs:
           docker stop flued-test
           docker rm flued-test
 
-      - name: Deployment information
-        run: |
-          echo "Docker build successful"
-          echo "Commit: ${{ github.sha }}"
-          echo "Ready for Kubernetes deployment"
+      # -------------------------
+      # CD - Deploy to EC2/Kind
+      # -------------------------
 
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Kubernetes
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
+          set -e
+
+          cd ~/flued-devops-challenge
+
+          echo "Building Docker image on EC2..."
+
+          docker build \
+            -t flued-backend:${{ github.sha }} \
+            ./app
+
+          echo "Loading image into Kind..."
+
+          kind load docker-image \
+            flued-backend:${{ github.sha }} \
+            --name flued-challenge
+
+          echo "Updating Kubernetes deployment..."
+
+          kubectl set image deployment/flued-backend \
+            backend=flued-backend:${{ github.sha }}
+
+          echo "Waiting for rollout..."
+
+          kubectl rollout status \
+            deployment/flued-backend \
+            --timeout=120s
+
+          echo "Deployment successful!"
+
+          kubectl get pods
+
+          EOF
